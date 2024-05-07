@@ -1,0 +1,131 @@
+# This is the list of manifests for our Kubernetes debugging / triage interview segment. 
+ 
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-service
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stressful-deployment
+  namespace: sample-service
+  labels:
+    k8s-app: stressful-service
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      k8s-app: stressful-service
+  template:
+    metadata:
+      labels:
+        k8s-app: stressful-service
+    spec:
+      containers:
+      - command:
+        - stress
+        args:
+        - "--vm"
+        - "1"
+        - "--vm-bytes"
+        - "250M"
+        - "--vm-hang"
+        - "1"
+        name: stressful-pod
+        image: polinux/stress
+        resources:
+          requests:
+            memory: "100Mi"
+          limits:
+            memory: "200Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysterious-deployment
+  namespace: sample-service
+  labels:
+    k8s-app: itsamystery
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      k8s-app: itsamystery
+  template:
+    metadata:
+      labels:
+        k8s-app: itsamystery
+    spec:
+      tolerations:
+      - effect: NoSchedule
+        key: special-nodes
+      nodeSelector:
+        medium.engineering/nodes: special-nodes
+      containers:
+      - command:
+        - sleep
+        args:
+        - "3600"
+        name: mystery-pod
+        image: gcr.io/kubernetes-e2e-test-images/dnsutils:latest
+        resources:
+          requests:
+            cpu: 16
+            memory: "100Mi"
+          limits:
+            memory: "200Mi"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+data:
+  redis-config: |
+    maxmemory 2mb
+    maxmemory-policy allkeys-lru
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: sample-service
+spec:
+  serviceName: redis-cluster
+  replicas: 6
+  selector:
+    matchLabels:
+      k8s-app: redis-cluster
+  template:
+    metadata:
+      labels:
+        k8s-app: redis-cluster
+    spec:
+      containers:
+      - name: redis
+        image: redis:6.2.5
+        command: ["redis-server"]
+        args: ["/conf/redis.conf"]
+        env:
+        - name: REDIS_CLUSTER_ANNOUNCE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        ports:
+        - containerPort: 6379
+          name: client
+        - containerPort: 16379
+          name: gossip
+        volumeMounts:
+        - mountPath: /conf
+          name: config
+      volumes:
+      - name: data
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: redis-config
